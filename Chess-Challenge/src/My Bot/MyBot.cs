@@ -1,31 +1,54 @@
 ﻿using ChessChallenge.API;
 using System;
-//using System;
-//using System.Collections.Generic;
+using System.Collections.Generic;
 //using System.Linq;
 //using System.Numerics;
 public class MyBot : IChessBot
 {
-
     public Move Think(Board board, Timer timer)
     {
         Move[] moves = board.GetLegalMoves();
-        Move bestMove = moves[0];
-        int bestEval = PieceEvaluation(board);
-        foreach (Move move in moves)
+        List<Move> bestMoves = new List<Move>() { moves[0] };
+        int bestEval = CompleteEvaluation(board);
+        bool isBetterMove;
+
+        foreach (Move move in moves) //Move to Search Function to make this cleaner (or not if that wastes tokens)
         {
             board.MakeMove(move);
-            if (PieceEvaluation(board) > bestEval * (board.IsWhiteToMove ? 1 : -1))
+
+            isBetterMove = CompleteEvaluation(board) < bestEval;
+            if (!board.IsWhiteToMove) { isBetterMove ^= true; };
+
+            if (CompleteEvaluation(board) == bestEval) { bestMoves.Add(move); };
+
+            if (isBetterMove)
             {
-                bestMove = move;
-                bestEval = PieceEvaluation(board);
-                Console.WriteLine(bestEval);
+                bestMoves.Clear();
+                bestMoves.Add(move);
+                bestEval = CompleteEvaluation(board);
             };
+            
             board.UndoMove(move);
         }
-        return bestMove;
+
+        Random rand = new();
+        return bestMoves[rand.Next(0,bestMoves.Count - 1)];
     }
 
+    public int CompleteEvaluation(Board board)
+    {
+        /* Complete Evaluation todo:
+         * - CHECKMATE DETECTION yes yes yes yes
+         * - and also check priority i guess
+         * - Piece Evaluation but guiding the pieces towards certain squares
+         * - King Safety Evaluation
+         */
+        int eval = 0;
+        
+        eval += PieceEvaluation(board);
+
+        return eval;
+    }
     public int PieceEvaluation(Board board)
     {
         int pieceEval = 0;
