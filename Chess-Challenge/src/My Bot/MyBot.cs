@@ -5,16 +5,35 @@ using System.Collections.Generic;
 //using System.Numerics;
 public class MyBot : IChessBot
 {
+    // Bot settings   
+    const int SearchDepth = 3;
+    const int CheckmateFlag = 0x8000;
+    public double GameProgression = 0.0;
+    bool isWhite;
+
     public Move Think(Board board, Timer timer)
     {
         Move[] moves = board.GetLegalMoves();
-        List<Move> bestMoves = new List<Move>() { moves[0] };
-        int bestEval = CompleteEvaluation(board);
+        List<Move> bestMoves = new() { moves[0] };
+        double bestEval = CompleteEvaluation(board);
         bool isBetterMove;
+        isWhite = board.IsWhiteToMove;
+        GameProgression = (double) board.PlyCount / 50.0d;
+        Console.WriteLine(GameProgression);
 
-        foreach (Move move in moves) //Move to Search Function to make this cleaner (or not if that wastes tokens)
+        /* Search todos:
+         * -SEARCH DEPTH
+         * -thats really it eval is also needed
+         * -transposition tables maybe
+         */
+        foreach (Move move in moves)
         {
             board.MakeMove(move);
+
+            if (board.IsInCheckmate() || board.GetLegalMoves().Length == 1)
+            {
+                return move;
+            }
 
             isBetterMove = CompleteEvaluation(board) < bestEval;
             if (!board.IsWhiteToMove) { isBetterMove ^= true; };
@@ -27,7 +46,6 @@ public class MyBot : IChessBot
                 bestMoves.Add(move);
                 bestEval = CompleteEvaluation(board);
             };
-            
             board.UndoMove(move);
         }
 
@@ -35,44 +53,87 @@ public class MyBot : IChessBot
         return bestMoves[rand.Next(0,bestMoves.Count - 1)];
     }
 
-    public int CompleteEvaluation(Board board)
+    public double CompleteEvaluation(Board board)
     {
         /* Complete Evaluation todo:
-         * - CHECKMATE DETECTION yes yes yes yes
-         * - and also check priority i guess
+         * !- CHECKMATE DETECTION yes yes yes yes
+         * !- and also check priority i guess
          * - Piece Evaluation but guiding the pieces towards certain squares
          * - King Safety Evaluation
          */
-        int eval = 0;
+        double eval = 0;
         
         eval += PieceEvaluation(board);
+        eval += board.IsInCheck() ? 1000 : 0;
 
         return eval;
     }
-    public int PieceEvaluation(Board board)
+    public double PieceEvaluation(Board board)
     {
-        int pieceEval = 0;
-        int deltaEval;
+        double pieceEval = 0;
+        double deltaEval;
+
+        //thanks to @viren on the stockfish discord for the values (https://media.discordapp.net/attachments/329957785900941323/1131957627832782950/image.png)
+        double[] pieceValues = { 0, 100, 233, 279, 428, 873, 0 };
 
         foreach (PieceList pieces in board.GetAllPieceLists())
         {
             deltaEval = 0;
             if (pieces.TypeOfPieceInList == PieceType.King) { continue; };
-            /*
-             * switch statement in desperate need of an efficientizing :3
-             * thanks to @viren on the stockfish discord for the values (https://media.discordapp.net/attachments/329957785900941323/1131957627832782950/image.png)
-             */
-            switch (pieces.TypeOfPieceInList)
+
+            foreach (Piece piece in pieces)
             {
-                case PieceType.Pawn: deltaEval = 100; break;
-                case PieceType.Knight: deltaEval = 233; break;
-                case PieceType.Bishop: deltaEval = 279; break;
-                case PieceType.Rook: deltaEval = 428; break;
-                case PieceType.Queen: deltaEval = 873; break;
+                deltaEval = pieceValues[(int)piece.PieceType] * CorrectionTerm(piece);
+                pieceEval += deltaEval * (pieces.IsWhitePieceList ? 1 : -1);
             }
-            pieceEval += deltaEval * (pieces.IsWhitePieceList ? 1 : -1) * pieces.Count;
         }
 
         return pieceEval;
+    }
+
+    public double CorrectionTerm(Piece piece)
+    {
+        double correction = 1;
+
+        //Don't think the bishop OR queen requires correction, tbh.
+        switch (piece.PieceType) 
+        {
+            case PieceType.Pawn:
+                /* Open-Mid: Second rank, unless center, then fourth rank
+                 * Endgame: Eighth rank
+                 */
+                correction = LinearInterpolate(1, Math.Abs(Rank(7) - piece.Square.Rank), GameProgression);
+                break;
+            case PieceType.Knight:
+                /* Open-Mid: Center of board.
+                 * Endgame: No correction term.
+                 */
+                break;
+            case PieceType.Rook:
+                /* Open-Mid: Castle squares
+                 * Endgame: None
+                 */
+                break;
+        }
+
+        return correction;
+    }
+
+    public static int DistanceOfSquares(Square start, Square end)
+    {
+        int yDistance = Math.Abs(start.Rank - end.Rank);
+        int xDistance = Math.Abs(start.File - end.File);
+        int diagonalReduction = Math.Min(yDistance, xDistance);
+        return yDistance + xDistance - diagonalReduction;
+    }
+
+    public static double LinearInterpolate(float start, float end, double percent)
+    {
+        return (end-start)*percent+start;
+    }
+
+    public int Rank(int rank)
+    {
+        return isWhite ? rank : 7 - rank;
     }
 }
