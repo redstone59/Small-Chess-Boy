@@ -6,20 +6,19 @@ using System.Collections.Generic;
 public class MyBot : IChessBot
 {
     // Bot settings   
-    const int SearchDepth = 3;
-    const int CheckmateFlag = 0x8000;
-    public double GameProgression = 0.0;
+    const int SearchDepth = 4;
+    public double GameProgression = 0;
     bool isWhite;
 
     public Move Think(Board board, Timer timer)
     {
         Move[] moves = board.GetLegalMoves();
         List<Move> bestMoves = new() { moves[0] };
-        double bestEval = CompleteEvaluation(board);
+        List<Move> moveList = new();
+        double bestEval = CompleteEvaluation(board,new Square());
         bool isBetterMove;
         isWhite = board.IsWhiteToMove;
-        GameProgression = (double) board.PlyCount / 50.0d;
-        Console.WriteLine(GameProgression);
+        GameProgression = (double)board.PlyCount / 75;
 
         /* Search todos:
          * -SEARCH DEPTH
@@ -35,16 +34,16 @@ public class MyBot : IChessBot
                 return move;
             }
 
-            isBetterMove = CompleteEvaluation(board) < bestEval;
+            isBetterMove = CompleteEvaluation(board, move.TargetSquare) < bestEval;
             if (!board.IsWhiteToMove) { isBetterMove ^= true; };
 
-            if (CompleteEvaluation(board) == bestEval) { bestMoves.Add(move); };
+            if (CompleteEvaluation(board, move.TargetSquare) == bestEval) { bestMoves.Add(move); };
 
             if (isBetterMove)
             {
                 bestMoves.Clear();
                 bestMoves.Add(move);
-                bestEval = CompleteEvaluation(board);
+                bestEval = CompleteEvaluation(board, move.TargetSquare);
             };
             board.UndoMove(move);
         }
@@ -52,8 +51,7 @@ public class MyBot : IChessBot
         Random rand = new();
         return bestMoves[rand.Next(0,bestMoves.Count - 1)];
     }
-
-    public double CompleteEvaluation(Board board)
+    public double CompleteEvaluation(Board board, Square square)
     {
         /* Complete Evaluation todo:
          * !- CHECKMATE DETECTION yes yes yes yes
@@ -63,8 +61,9 @@ public class MyBot : IChessBot
          */
         double eval = 0;
         
-        eval += PieceEvaluation(board);
-        eval += board.IsInCheck() ? 1000 : 0;
+        eval += PieceEvaluation(board)
+             + (board.IsInCheck() ? 1000 * GameProgression : 0) //re-eval
+             - (board.SquareIsAttackedByOpponent(square) ? 100 : 0); //re-eval, this just makes it scared to trade.
 
         return eval;
     }
@@ -79,11 +78,10 @@ public class MyBot : IChessBot
         foreach (PieceList pieces in board.GetAllPieceLists())
         {
             deltaEval = 0;
-            if (pieces.TypeOfPieceInList == PieceType.King) { continue; };
 
             foreach (Piece piece in pieces)
             {
-                deltaEval = pieceValues[(int)piece.PieceType] * CorrectionTerm(piece);
+                deltaEval = pieceValues[(int)piece.PieceType];// * CorrectionTerm(board, piece);
                 pieceEval += deltaEval * (pieces.IsWhitePieceList ? 1 : -1);
             }
         }
@@ -91,7 +89,7 @@ public class MyBot : IChessBot
         return pieceEval;
     }
 
-    public double CorrectionTerm(Piece piece)
+    public double CorrectionTerm(Board board, Piece piece) //All of these fucking suck. Work on searching.
     {
         double correction = 1;
 
@@ -102,17 +100,35 @@ public class MyBot : IChessBot
                 /* Open-Mid: Second rank, unless center, then fourth rank
                  * Endgame: Eighth rank
                  */
-                correction = LinearInterpolate(1, Math.Abs(Rank(7) - piece.Square.Rank), GameProgression);
+                correction = LinearInterpolate(1,
+                            Math.Abs(Rank(7) - piece.Square.Rank) + DistanceOfSquares(piece.Square, board.GetKingSquare(!isWhite)) * 100, 
+                            GameProgression);
                 break;
             case PieceType.Knight:
                 /* Open-Mid: Center of board.
                  * Endgame: No correction term.
                  */
+                correction = LinearInterpolate(4 - DistanceFromCenter(piece.Square), 1, GameProgression);
                 break;
             case PieceType.Rook:
                 /* Open-Mid: Castle squares
                  * Endgame: None
                  */
+                //correction = LinearInterpolate(
+                //                Math.Min(Math.Abs(3 - piece.Square.File), Math.Abs(5 - piece.Square.File)),
+                //                1,
+                //                GameProgression
+                //           );
+                break; 
+            case PieceType.King:
+                /* Open-Mid: Castle squares
+                 * Endgame: Center of Board
+                 */
+                //correction = LinearInterpolate(
+                //                Math.Abs(Rank(0) - piece.Square.Rank), 
+                //                4 - DistanceFromCenter(piece.Square),
+                //                GameProgression
+                //             );
                 break;
         }
 
@@ -125,6 +141,11 @@ public class MyBot : IChessBot
         int xDistance = Math.Abs(start.File - end.File);
         int diagonalReduction = Math.Min(yDistance, xDistance);
         return yDistance + xDistance - diagonalReduction;
+    }
+
+    public static int DistanceFromCenter(Square square)
+    {
+        return Math.Min(DistanceOfSquares(square, new Square("d4")), DistanceOfSquares(square, new Square("e5")));
     }
 
     public static double LinearInterpolate(float start, float end, double percent)
